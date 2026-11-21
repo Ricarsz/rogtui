@@ -13,7 +13,7 @@ optdepends=(
   'networkmanager: Wi-Fi, IPv4/DNS, VPN and hotspot management'
 )
 source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('fb0c7dd1da07f5689c6ae55ea0dbbd5c1996eabfac099850639a78c70bbb09b2')
 
 prepare() {
   cd "rogtui-$pkgver"
