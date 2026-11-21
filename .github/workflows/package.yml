@@ -31,19 +31,24 @@ jobs:
 
       - name: Resolve release tag
         id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.release_tag }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
           else
             echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Verify tag matches PKGBUILD
         working-directory: packaging/aur
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
           pkgver=$(sed -n 's/^pkgver=//p' PKGBUILD)
-          if [ "v$pkgver" != "${{ steps.tag.outputs.tag }}" ]; then
-            echo "PKGBUILD pkgver=$pkgver does not match tag ${{ steps.tag.outputs.tag }}" >&2
+          if [ "v$pkgver" != "$TAG" ]; then
+            echo "PKGBUILD pkgver=$pkgver does not match tag $TAG" >&2
             exit 1
           fi
 
@@ -60,12 +65,12 @@ jobs:
       - name: Remove stale package assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          tag="${{ steps.tag.outputs.tag }}"
-          gh release view "$tag" --json assets -q '.assets[].name' 2>/dev/null \
+          gh release view "$TAG" --json assets -q '.assets[].name' 2>/dev/null \
             | grep -E '^rogtui(-debug)?-.*\.pkg\.tar\.zst$' \
             | while read -r name; do
-                gh release delete-asset "$tag" "$name" -y
+                gh release delete-asset "$TAG" "$name" -y
               done || true
 
       - name: Attach package to release
