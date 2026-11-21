@@ -59,6 +59,14 @@ for arg in "\$@"; do
     fi
 done
 
+prev=""
+for arg in "\$@"; do
+    if [ "\$arg" = "topology" ] && [ "\$prev" = "gpu" ]; then
+        exec "\$BIN" "\$@"
+    fi
+    prev="\$arg"
+done
+
 exec sudo -n "\$BIN" "\$@"
 EOF
 chmod 755 "$tmpdir/wrapper"

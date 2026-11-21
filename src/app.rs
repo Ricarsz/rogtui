@@ -1046,7 +1046,7 @@ impl App {
                     let (name, hex) = AURA_COLORS[self.aura_color];
                     asus::aura_static(hex)?;
                     self.refresh_current_tab();
-                    self.status = self.persisted(format!("灯效：静态 {name}"));
+                    self.status = format!("灯效：静态 {name}");
                     self.status_err = false;
                 }
             }
@@ -1566,7 +1566,7 @@ impl App {
         let hex = self.aura_pick_hex();
         asus::aura_static(&hex)?;
         self.refresh_current_tab();
-        self.status = self.persisted(format!("灯效：静态自定义色 {hex}"));
+        self.status = format!("灯效：静态自定义色 {hex}");
         self.status_err = false;
         Ok(())
     }
@@ -1969,19 +1969,19 @@ impl App {
             KeyCode::Char('b') => {
                 asus::led_next()?;
                 self.refresh_current_tab();
-                self.status = self.persisted("键盘亮度已切换".into());
+                self.status = "键盘亮度已切换".into();
                 self.status_err = false;
             }
             KeyCode::Char('e') => {
                 asus::aura_next()?;
                 self.refresh_current_tab();
-                self.status = self.persisted("已切换到下一个灯效".into());
+                self.status = "已切换到下一个灯效".into();
                 self.status_err = false;
             }
             KeyCode::Char('E') => {
                 asus::aura_prev()?;
                 self.refresh_current_tab();
-                self.status = self.persisted("已切换到上一个灯效".into());
+                self.status = "已切换到上一个灯效".into();
                 self.status_err = false;
             }
             KeyCode::Char('c') => {
@@ -1991,7 +1991,7 @@ impl App {
                 let (name, hex) = AURA_COLORS[self.aura_color % AURA_COLORS.len()];
                 asus::aura_static(hex)?;
                 self.refresh_current_tab();
-                self.status = self.persisted(format!("灯效：静态 {name}"));
+                self.status = format!("灯效：静态 {name}");
                 self.status_err = false;
             }
             KeyCode::Char('C') => {
@@ -2514,14 +2514,6 @@ impl App {
         Ok(())
     }
 
-    /// NixOS 上 asusd 配置由系统声明时，给结果补一句“重启回滚”，避免误以为已持久化。
-    fn persisted(&self, message: String) -> String {
-        match self.deps.nixos.note() {
-            Some(note) => format!("{message}（{note}）"),
-            None => message,
-        }
-    }
-
     fn confirm(&mut self, title: &str, body: impl Into<String>, pending: Pending) {
         self.modal = Some(Modal::Confirm {
             title: title.into(),
@@ -2545,11 +2537,11 @@ impl App {
             }
             Pending::DefaultAc(profile) => {
                 asus::profile_set_default(PowerSource::Ac, profile)?;
-                self.status = self.persisted(format!("AC 默认模式已设为{}", profile.zh()));
+                self.status = format!("AC 默认模式已设为{}", profile.zh());
             }
             Pending::DefaultBattery(profile) => {
                 asus::profile_set_default(PowerSource::Battery, profile)?;
-                self.status = self.persisted(format!("电池默认模式已设为{}", profile.zh()));
+                self.status = format!("电池默认模式已设为{}", profile.zh());
             }
             Pending::Preset(index) => {
                 let preset = self
@@ -2592,18 +2584,12 @@ impl App {
                 self.request_core();
                 if problems.is_empty() {
                     self.status_err = false;
-                    self.status = self.persisted(format!(
-                        "已套用「{}」预设到{}模式",
-                        preset.name,
-                        preset.profile.zh()
-                    ));
+                    self.status =
+                        format!("已套用「{}」预设到{}模式", preset.name, preset.profile.zh());
                 } else {
                     self.status_err = true;
-                    self.status = self.persisted(format!(
-                        "已套用「{}」预设，但：{}",
-                        preset.name,
-                        problems.join("；")
-                    ));
+                    self.status =
+                        format!("已套用「{}」预设，但：{}", preset.name, problems.join("；"));
                 }
             }
             Pending::PowerApply => {
@@ -2654,13 +2640,13 @@ PL3 {max_pl3}W 高于 65W，注意温度"
                 } else {
                     self.status_err = false;
                 }
-                self.status = self.persisted(status);
+                self.status = status;
                 self.request_core();
             }
             Pending::BatteryLimit(limit) => {
                 asus::battery_limit(limit)?;
                 self.limit_dirty = false;
-                self.status = self.persisted(format!("充电上限已设为 {limit}%"));
+                self.status = format!("充电上限已设为 {limit}%");
             }
             Pending::Oneshot => {
                 asus::battery_oneshot(None)?;
@@ -2668,7 +2654,7 @@ PL3 {max_pl3}W 高于 65W，注意温度"
             }
             Pending::Gpu(mode) => {
                 asus::gpu_set(mode)?;
-                self.status = self.persisted(format!("GPU 模式已设为{}，请重启生效", mode.zh()));
+                self.status = format!("GPU 模式已设为{}，请重启生效", mode.zh());
             }
             Pending::NetApply(form) => {
                 let settings = nm::Ipv4Settings {
@@ -2708,11 +2694,11 @@ PL3 {max_pl3}W 高于 65W，注意温度"
                     .ok_or_else(|| anyhow!("没有这个风扇预设"))?;
                 asus::fan_apply(preset.profile, &preset.cpu, &preset.gpu)?;
                 self.refresh_fan()?;
-                self.status = self.persisted(format!(
+                self.status = format!(
                     "已套用风扇预设：{}（{}，已启用）",
                     preset.name,
                     preset.profile.zh()
-                ));
+                );
             }
             Pending::FanSave => {
                 let profile = self.profile.map(|p| p.active).unwrap_or(Profile::Balanced);
@@ -2753,7 +2739,7 @@ PL3 {max_pl3}W 高于 65W，注意温度"
                 let profile = self.profile.map(|p| p.active).unwrap_or(Profile::Balanced);
                 asus::fan_default(profile)?;
                 self.refresh_fan()?;
-                self.status = self.persisted(format!("{} 的风扇曲线已恢复默认", profile.zh()));
+                self.status = format!("{} 的风扇曲线已恢复默认", profile.zh());
             }
             Pending::FanCurveApply(edit) => {
                 let profile = self.profile.map(|p| p.active).unwrap_or(Profile::Balanced);
@@ -2772,11 +2758,11 @@ PL3 {max_pl3}W 高于 65W，注意温度"
                     }
                     current.dirty = false;
                 }
-                self.status = self.persisted(format!(
+                self.status = format!(
                     "{} 风扇曲线已写入并启用（{}）",
                     edit.fan.to_uppercase(),
                     profile.zh()
-                ));
+                );
             }
             Pending::FanSwitch(fan) => {
                 self.open_fan_edit(&fan)?;
@@ -3253,13 +3239,6 @@ mod mouse_tests {
             product: String::new(),
             laptop: false,
             asus_hardware: false,
-            nixos: crate::nixos::Status {
-                nixos: false,
-                reason: String::new(),
-                managed: false,
-                files: Vec::new(),
-                profiles: Vec::new(),
-            },
             checks: Vec::new(),
         };
         App::new(cfg, report)

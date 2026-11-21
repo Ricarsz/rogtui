@@ -1232,10 +1232,7 @@ fn draw_asus_panel(frame: &mut Frame, area: Rect, app: &App) {
 }
 
 fn draw_performance(frame: &mut Frame, area: Rect, app: &App) {
-    // 概览固定两行；NixOS 托管时多一行回滚提示。
-    let summary_height = if app.deps.nixos.managed { 5 } else { 4 };
-    let rows =
-        Layout::vertical([Constraint::Length(summary_height), Constraint::Min(0)]).split(area);
+    let rows = Layout::vertical([Constraint::Length(4), Constraint::Min(0)]).split(area);
     draw_perf_summary(frame, rows[0], app);
 
     let cols =
@@ -1304,14 +1301,7 @@ fn draw_perf_summary(frame: &mut Frame, area: Rect, app: &App) {
             Style::new().fg(pal().dim),
         ),
     ]);
-    let mut lines = vec![line, link];
-    if let Some(banner) = crate::nixos::banner(&app.deps.nixos) {
-        lines.push(Line::from(vec![
-            Span::styled("  NixOS ", Style::new().fg(pal().warn).bold()),
-            Span::styled(banner, Style::new().fg(pal().dim)),
-        ]));
-    }
-    frame.render_widget(Paragraph::new(lines), inner);
+    frame.render_widget(Paragraph::new(vec![line, link]), inner);
 }
 
 fn draw_profiles(frame: &mut Frame, area: Rect, app: &App) {

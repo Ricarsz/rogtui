@@ -25,8 +25,6 @@ pub struct Report {
     pub product: String,
     pub laptop: bool,
     pub asus_hardware: bool,
-    /// NixOS 托管的 asusd 配置状态；非 NixOS 时 nixos=false、files 为空。
-    pub nixos: crate::nixos::Status,
     pub checks: Vec<Check>,
 }
 
@@ -258,7 +256,6 @@ pub fn check() -> Report {
         product: hardware.product,
         laptop: hardware.laptop,
         asus_hardware: asus_required,
-        nixos: crate::nixos::detect(),
         checks,
     }
 }

@@ -6,7 +6,6 @@ use crate::asus::{self, GpuMode, PowerSource, Profile};
 use crate::config::{Config, FanPreset};
 use crate::deps;
 use crate::gpu;
-use crate::nixos;
 use crate::nm;
 use crate::services::{self, ServiceAction};
 
@@ -69,24 +68,11 @@ pub enum Cmd {
     Config,
     /// 检查 asusctl/asusd/NetworkManager 依赖
     Doctor,
-    /// NixOS：查看 asusd 配置托管状态，或导出可固化片段
-    Nixos {
-        #[command(subcommand)]
-        cmd: Option<NixosCmd>,
-    },
     /// 管理系统服务（asusd、NetworkManager 等）
     Service {
         #[command(subcommand)]
         cmd: ServiceCmd,
     },
-}
-
-#[derive(Subcommand)]
-pub enum NixosCmd {
-    /// 查看 /etc/asusd 是否由 NixOS 声明、运行时是否已分叉
-    Status,
-    /// 打印可放进 NixOS 配置的 services.asusd 片段
-    Export,
 }
 
 #[derive(Subcommand)]
@@ -399,7 +385,6 @@ pub fn run(cmd: Cmd, json: bool) -> Result<()> {
         Cmd::Aura { cmd } => aura(cmd, json),
         Cmd::Config => config(json),
         Cmd::Doctor => doctor(json),
-        Cmd::Nixos { cmd } => nixos_cmd(cmd, json),
         Cmd::Service { cmd } => service(cmd, json),
     }
 }
@@ -507,7 +492,6 @@ fn doctor(json: bool) -> Result<()> {
                 }
             }
         }
-        print_nixos(&report.nixos);
     }
     if !report.all_ok() {
         bail!("依赖检查未通过");
@@ -517,70 +501,6 @@ fn doctor(json: bool) -> Result<()> {
         println!("存在硬件/依赖警告：ASUS 功能可能不可用，网络功能不受影响。");
     }
     Ok(())
-}
-
-fn nixos_cmd(cmd: Option<NixosCmd>, json: bool) -> Result<()> {
-    let status = nixos::detect();
-    match cmd.unwrap_or(NixosCmd::Status) {
-        NixosCmd::Status => {
-            if json {
-                println!("{}", serde_json::to_string_pretty(&status)?);
-            } else {
-                print_nixos(&status);
-            }
-            Ok(())
-        }
-        NixosCmd::Export => {
-            let module = nixos::export_module(&status)?;
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&json!({
-                        "nixos": status.nixos,
-                        "module": module,
-                    }))?
-                );
-            } else {
-                print!("{module}");
-            }
-            Ok(())
-        }
-    }
-}
-
-fn print_nixos(status: &nixos::Status) {
-    println!();
-    println!("NixOS 配置");
-    println!(
-        "  平台    {}（{}）",
-        if status.nixos { "NixOS" } else { "非 NixOS" },
-        status.reason
-    );
-    if !status.nixos {
-        println!("  持久化  /etc/asusd 的运行时写入可直接保存");
-        return;
-    }
-    if !status.managed {
-        println!("  托管    未发现 NixOS 声明的 asusd 配置，运行时写入可保存");
-        return;
-    }
-    println!("  托管    /etc/static/asusd 由 NixOS 声明，运行时写入重启/switch 后回滚");
-    for file in &status.files {
-        println!("  {:<20} {}", file.name, file.summary());
-    }
-    for profile in &status.profiles {
-        let label = match profile.field {
-            "platform_profile_on_ac" => "AC 默认",
-            "platform_profile_on_battery" => "电池默认",
-            other => other,
-        };
-        println!(
-            "  {label}  声明 {} / 运行时 {}",
-            profile.declared.as_deref().unwrap_or("?"),
-            profile.runtime.as_deref().unwrap_or("?")
-        );
-    }
-    println!("  固化    运行 `rogtui nixos export` 生成 services.asusd 片段");
 }
 
 fn status(json: bool) -> Result<()> {
@@ -680,7 +600,6 @@ fn profile(cmd: ProfileCmd, json: bool) -> Result<()> {
             let source: PowerSource = source.into();
             let profile: Profile = profile.into();
             asus::profile_set_default(source, profile)?;
-            nixos::warn_runtime_only();
             if json {
                 let source_name = match source {
                     PowerSource::Ac => "ac",
@@ -748,7 +667,6 @@ fn battery(cmd: BatteryCmd, json: bool) -> Result<()> {
         }
         BatteryCmd::Limit { percent } => {
             asus::battery_limit(percent)?;
-            nixos::warn_runtime_only();
             if json {
                 println!(
                     "{}",
@@ -911,7 +829,6 @@ fn power(cmd: PowerCmd, json: bool) -> Result<()> {
             if applied == 0 {
                 bail!("没有任何一项写进固件：{}", notes.join("；"));
             }
-            nixos::warn_runtime_only();
 
             if json {
                 println!(
@@ -1486,7 +1403,6 @@ fn fan(cmd: FanCmd, json: bool) -> Result<()> {
                 .ok_or_else(|| anyhow::anyhow!("没有名为 {name} 的风扇预设"))?
                 .clone();
             asus::fan_apply(preset.profile, &preset.cpu, &preset.gpu)?;
-            nixos::warn_runtime_only();
             if json {
                 println!(
                     "{}",
@@ -1511,7 +1427,6 @@ fn fan(cmd: FanCmd, json: bool) -> Result<()> {
         FanCmd::Default => {
             let profile = active_profile()?;
             asus::fan_default(profile)?;
-            nixos::warn_runtime_only();
             println!("{} 的风扇曲线已恢复默认", profile.zh());
             Ok(())
         }
@@ -1570,7 +1485,6 @@ fn aura(cmd: AuraCmd, json: bool) -> Result<()> {
         AuraCmd::Prev => asus::aura_prev()?,
         AuraCmd::Static { colour } => asus::aura_static(&colour)?,
     }
-    nixos::warn_runtime_only();
     if json {
         println!("{}", serde_json::to_string_pretty(&json!({ "ok": true }))?);
     } else {

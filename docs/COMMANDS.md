@@ -1,6 +1,6 @@
 # 命令与快捷键
 
-所有写操作需要 root：`sudo rogtui ...`。`rogtui doctor` 和 `rogtui nixos ...` 只读，可以在普通用户下运行。
+所有写操作需要 root：`sudo rogtui ...`。`rogtui doctor` 和 `rogtui gpu topology` 只读，可以在普通用户下运行。
 
 ## 全局
 
@@ -97,19 +97,6 @@ sudo rogtui aura static ff8800
 ```
 
 `aura status` 显示当前模式、亮度、颜色、速度、区域和支持的模式。
-
-## NixOS
-
-NixOS 上 `/etc/asusd/*.ron` 常由 `services.asusd.*Config` 声明，运行时改动会在下次 boot 或 `nixos-rebuild switch` 时回滚。rogtui 检测 `/etc/static/asusd`，在性能页提示，并在操作结果后标注「NixOS：重启后回滚」。
-
-```bash
-rogtui nixos status          # 托管状态、运行时与声明的差异（含 AC/电池默认模式）
-rogtui nixos export          # 输出 services.asusd 片段
-rogtui --json nixos status
-rogtui --json nixos export
-```
-
-`export` 读取当前运行时配置，生成 `asusdConfig.text` / `fanCurvesConfig.text` / `auraConfigs."<型号>".text`。把片段并入 NixOS 配置后执行 `sudo nixos-rebuild switch`。rogtui 不会修改 NixOS 配置树。
 
 ## 服务
 

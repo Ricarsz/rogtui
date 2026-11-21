@@ -5,7 +5,6 @@ mod config;
 mod deps;
 mod gpu;
 mod hw;
-mod nixos;
 mod nm;
 mod services;
 mod sys;
@@ -23,12 +22,11 @@ fn main() {
 
     let cli = Cli::parse();
 
-    // 只读子命令不需要 root：doctor 只探测环境，nixos 只读 /etc 与导出。
+    // 只读子命令不需要 root：doctor 只探测环境，gpu topology 只读 sysfs。
     let readonly = matches!(
         &cli.command,
         Some(
             cli::Cmd::Doctor
-                | cli::Cmd::Nixos { .. }
                 | cli::Cmd::Gpu {
                     cmd: cli::GpuCmd::Topology
                 }
@@ -54,7 +52,6 @@ fn main() {
             if !matches!(
                 cmd,
                 cli::Cmd::Doctor
-                    | cli::Cmd::Nixos { .. }
                     | cli::Cmd::Gpu {
                         cmd: cli::GpuCmd::Topology
                     }
