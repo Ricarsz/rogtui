@@ -5,6 +5,7 @@ mod config;
 mod deps;
 mod gpu;
 mod hw;
+mod nixos;
 mod nm;
 mod services;
 mod sys;
@@ -22,8 +23,12 @@ fn main() {
 
     let cli = Cli::parse();
 
-    let is_doctor = matches!(&cli.command, Some(cli::Cmd::Doctor));
-    if !is_doctor && !util::is_root() {
+    // 只读子命令不需要 root：doctor 只探测环境，nixos 只读 /etc 与导出。
+    let readonly = matches!(
+        &cli.command,
+        Some(cli::Cmd::Doctor | cli::Cmd::Nixos { .. })
+    );
+    if !readonly && !util::is_root() {
         eprintln!("rogtui 需要 root 权限运行，请使用：sudo rogtui");
         std::process::exit(1);
     }
@@ -40,7 +45,7 @@ fn main() {
     let result = match cli.command {
         None => app::run(cfg, deps),
         Some(cmd) => {
-            if !matches!(cmd, cli::Cmd::Doctor)
+            if !matches!(cmd, cli::Cmd::Doctor | cli::Cmd::Nixos { .. })
                 && let Some(warning) = deps.startup_warning()
             {
                 eprintln!("{warning}");

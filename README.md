@@ -21,6 +21,7 @@ ASUS TUF 的终端控制台。Rust + [ratatui](https://ratatui.rs/)，底层调�
 - **外观**：5 套配色主题，网络速率单位可选二进制 / 十进制 / 比特
 - **启动**：立即绘制界面，硬件信息、传感器采样、ASUS 状态与网络快照在后台加载，不阻塞首帧
 - **诊断**：发行版、ASUS 笔记本、CPU/GPU 型号、asusctl/asusd/nmcli/NetworkManager 检测
+- **NixOS**：识别 `/etc/static/asusd` 的声明式配置，提示重启回滚，`rogtui nixos export` 输出可固化的 `services.asusd` 片段
 - **CLI**：与 TUI 同能力，支持 `--json`
 
 ## 快速开始

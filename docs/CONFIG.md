@@ -71,6 +71,18 @@ AMD/Intel 走 DRM + hwmon，不受该选项影响。
 sudo cp -a /etc/asusd /etc/asusd.bak
 ```
 
+### NixOS
+
+`/etc/asusd/` 下的文件若由 `services.asusd.asusdConfig`、`fanCurvesConfig`、`auraConfigs.*` 等选项声明，`/etc/static/asusd/` 会有对应副本。asusd 运行时会用普通文件替换 `/etc/asusd/` 的 symlink，本次运行生效；但下一次 boot 或 switch 时 `/etc` 按系统代重新生成，改动丢失。
+
+rogtui 检测到这种托管关系时：
+
+- 性能页显示提示，相关操作结果带「NixOS：重启后回滚」；
+- `rogtui nixos status` 列出每个文件的托管与分叉状态，并对比 `platform_profile_on_ac` / `platform_profile_on_battery` 的声明值与运行时值；
+- `rogtui nixos export` 输出 `services.asusd` 的 `.text` 片段，并入配置并 `nixos-rebuild switch` 后才持久化。
+
+未由 NixOS 声明的文件（`/etc/static/asusd/` 下没有副本）仍按普通发行版处理，运行时写入可以直接保存。
+
 ## 依赖与硬件检测
 
 ```bash
