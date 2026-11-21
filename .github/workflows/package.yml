@@ -68,7 +68,12 @@ jobs:
           TAG: ${{ steps.tag.outputs.tag }}
         run: |
           api="https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}"
-          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "$api" \
+          json=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" "$api" || true)
+          if [ -z "$json" ]; then
+            echo "release $TAG not found yet"
+            exit 0
+          fi
+          echo "$json" \
             | jq -r '.assets[] | select(.name | test("^rogtui(-debug)?-.*\\.pkg\\.tar\\.zst$")) | .id' \
             | while read -r id; do
                 curl -fsSL -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
