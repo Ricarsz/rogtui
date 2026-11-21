@@ -5,6 +5,7 @@ use serde_json::json;
 use crate::asus::{self, GpuMode, PowerSource, Profile};
 use crate::config::{Config, FanPreset};
 use crate::deps;
+use crate::gpu;
 use crate::nixos;
 use crate::nm;
 use crate::services::{self, ServiceAction};
@@ -170,6 +171,8 @@ pub enum PowerCmd {
 pub enum GpuCmd {
     /// 查看当前 GPU 模式
     Get,
+    /// 固件 GPU 模式与每块卡的显示输出（无需 root）
+    Topology,
     /// 切换 GPU 模式（修改后需要重启）
     Set {
         #[arg(value_enum)]
@@ -959,6 +962,58 @@ fn gpu(cmd: GpuCmd, json: bool) -> Result<()> {
                 );
             } else {
                 println!("当前 GPU 模式：{}", mode.map(|m| m.zh()).unwrap_or("未知"));
+            }
+            Ok(())
+        }
+        GpuCmd::Topology => {
+            let topology = gpu::topology_now();
+            if json {
+                println!("{}", serde_json::to_string_pretty(&topology)?);
+            } else {
+                println!(
+                    "GPU 模式  {}（gpu_mux_mode={} dgpu_disable={}）",
+                    topology.mode_label(),
+                    topology
+                        .mux_mode
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "?".into()),
+                    match topology.dgpu_disabled {
+                        Some(true) => "1",
+                        Some(false) => "0",
+                        None => "?",
+                    }
+                );
+                if let Some(advice) = topology.advice() {
+                    println!("提示      {advice}");
+                }
+                for card in &topology.cards {
+                    println!();
+                    let title = if card
+                        .name
+                        .to_ascii_lowercase()
+                        .starts_with(&card.vendor.to_ascii_lowercase())
+                    {
+                        card.name.clone()
+                    } else {
+                        format!("{} {}", card.vendor, card.name)
+                    };
+                    println!(
+                        "{}{}",
+                        title,
+                        if card.boot_vga { "（boot_vga）" } else { "" }
+                    );
+                    for out in &card.outputs {
+                        println!(
+                            "  {:<10} {}",
+                            out.connector,
+                            if out.internal { "内置" } else { "外接" }
+                        );
+                    }
+                }
+                if topology.dual_cable {
+                    println!();
+                    println!("外接屏     同一块屏接在两块 GPU 上（EDID 相同）");
+                }
             }
             Ok(())
         }

@@ -477,7 +477,13 @@ fn draw_body(frame: &mut Frame, area: Rect, app: &App) {
         Tab::Fan => draw_fan(frame, area, app),
         Tab::Lighting => draw_lighting(frame, area, app),
         Tab::Network => draw_network(frame, area, app),
-        Tab::Gpu => draw_gpu(frame, area, &app.snap.gpus, app.snap_loading),
+        Tab::Gpu => draw_gpu(
+            frame,
+            area,
+            &app.snap.gpus,
+            app.snap_loading,
+            &app.snap.topology,
+        ),
         Tab::Services => draw_services(frame, area, app),
         Tab::Settings => draw_settings(frame, area, app),
     }
@@ -1627,7 +1633,13 @@ fn draw_power_fields(frame: &mut Frame, area: Rect, app: &App) {
     );
 }
 
-fn draw_gpu(frame: &mut Frame, area: Rect, gpus: &[gpu::Status], loading: bool) {
+fn draw_gpu(
+    frame: &mut Frame,
+    area: Rect,
+    gpus: &[gpu::Status],
+    loading: bool,
+    topology: &gpu::Topology,
+) {
     if gpus.is_empty() {
         let block = panel(" 显卡 ");
         let inner = block.inner(area);
@@ -1645,12 +1657,76 @@ fn draw_gpu(frame: &mut Frame, area: Rect, gpus: &[gpu::Status], loading: bool) 
         );
         return;
     }
+    let header = topology_height(topology);
+    let rows = Layout::vertical([Constraint::Length(header), Constraint::Min(0)]).split(area);
+    if header > 0 {
+        draw_gpu_topology(frame, rows[0], topology);
+    }
     let count = gpus.len() as u32;
     let constraints: Vec<Constraint> = (0..count).map(|_| Constraint::Ratio(1, count)).collect();
-    let rows = Layout::vertical(constraints).spacing(1).split(area);
+    let cards = Layout::vertical(constraints).spacing(1).split(rows[1]);
     for (index, status) in gpus.iter().enumerate() {
-        draw_gpu_card(frame, rows[index], status);
+        draw_gpu_card(frame, cards[index], status);
     }
+}
+
+fn topology_height(topology: &gpu::Topology) -> u16 {
+    if topology.cards.is_empty() {
+        return 0;
+    }
+    // 普通单显卡机器不显示这一栏，避免多出一行“模式未知”。
+    if topology.mux_mode.is_none() && topology.cards.len() < 2 && !topology.dual_cable {
+        return 0;
+    }
+    let mut lines = 1; // 模式 + 输出
+    if topology.advice().is_some() {
+        lines += 1;
+    }
+    if topology.dual_cable {
+        lines += 1;
+    }
+    lines + 2 // 边框
+}
+
+/// 固件 GPU 模式（EC，跨系统共享）+ 每块卡实际接了什么。
+fn draw_gpu_topology(frame: &mut Frame, area: Rect, topology: &gpu::Topology) {
+    let block = panel(" GPU 模式与输出 ");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.width == 0 || inner.height == 0 {
+        return;
+    }
+    let width = inner.width as usize;
+    let warn = topology.mux_mode == Some(0) || topology.dgpu_disabled == Some(true);
+    let mode_color = if warn { pal().warn } else { pal().good };
+
+    let mut lines = vec![Line::from(Span::styled(
+        util::truncate(
+            &format!(
+                "  模式  {}    {}",
+                topology.mode_label(),
+                topology.outputs_line()
+            ),
+            width,
+        ),
+        Style::new().fg(mode_color).bold(),
+    ))];
+    if let Some(advice) = topology.advice() {
+        lines.push(Line::from(Span::styled(
+            util::truncate(&format!("  {advice}"), width),
+            Style::new().fg(if warn { pal().warn } else { pal().dim }),
+        )));
+    }
+    if topology.dual_cable {
+        lines.push(Line::from(Span::styled(
+            util::truncate(
+                "  同一外接屏同时接在两块 GPU 上（EDID 相同），注意主渲染与显示器输入源",
+                width,
+            ),
+            Style::new().fg(pal().warn),
+        )));
+    }
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn draw_gpu_card(frame: &mut Frame, area: Rect, status: &gpu::Status) {
@@ -4528,9 +4604,18 @@ mod tests {
     }
 
     fn dump(gpus: &[gpu::Status], width: u16, height: u16) -> String {
+        dump_topology(gpus, &gpu::Topology::default(), width, height)
+    }
+
+    fn dump_topology(
+        gpus: &[gpu::Status],
+        topology: &gpu::Topology,
+        width: u16,
+        height: u16,
+    ) -> String {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
         terminal
-            .draw(|frame| draw_gpu(frame, frame.area(), gpus, false))
+            .draw(|frame| draw_gpu(frame, frame.area(), gpus, false, topology))
             .unwrap();
         let mut text = String::new();
         let mut skip_continuation = false;
@@ -4561,6 +4646,57 @@ mod tests {
         assert!(text.contains("615.78.08"));
         assert!(text.contains("PCIe 4.0 x8"));
         assert!(text.contains("38.0°C"));
+    }
+
+    #[test]
+    fn renders_gpu_topology_at_common_sizes() {
+        let gpus = [
+            status(gpu::Vendor::Nvidia, "RTX 4060"),
+            status(gpu::Vendor::Amd, "Radeon 780M"),
+        ];
+        let output = |connector: &str, internal: bool, card: &str, vendor: &str| gpu::OutputRef {
+            connector: connector.into(),
+            internal,
+            card: card.into(),
+            vendor: vendor.into(),
+            gpu: "GPU".into(),
+            edid: Some(1),
+        };
+        let topology = gpu::Topology {
+            mux_mode: Some(0),
+            dgpu_disabled: Some(false),
+            boot_vga: Some("0000:01:00.0".into()),
+            edp: Some(output("eDP-1", true, "card1", "NVIDIA")),
+            cards: vec![
+                gpu::CardTopology {
+                    card: "card1".into(),
+                    pci: "0000:01:00.0".into(),
+                    vendor: "NVIDIA".into(),
+                    name: "RTX 4060".into(),
+                    boot_vga: true,
+                    outputs: vec![
+                        output("eDP-1", true, "card1", "NVIDIA"),
+                        output("DP-1", false, "card1", "NVIDIA"),
+                    ],
+                },
+                gpu::CardTopology {
+                    card: "card0".into(),
+                    pci: "0000:66:00.0".into(),
+                    vendor: "AMD".into(),
+                    name: "Radeon 780M".into(),
+                    boot_vga: false,
+                    outputs: vec![output("DP-3", false, "card0", "AMD")],
+                },
+            ],
+            dual_cable: true,
+        };
+        for (width, height) in [(120, 30), (90, 24), (60, 16), (40, 10), (30, 8)] {
+            dump_topology(&gpus, &topology, width, height);
+        }
+        let text = dump_topology(&gpus, &topology, 120, 30);
+        assert!(text.contains("独显直连"));
+        assert!(text.contains("eDP-1"));
+        assert!(text.contains("EDID"));
     }
 
     fn service(unit: &str, active: &str, enabled: &str) -> services::ServiceInfo {

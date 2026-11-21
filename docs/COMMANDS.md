@@ -39,10 +39,13 @@ sudo rogtui battery oneshot
 
 ```bash
 sudo rogtui gpu get
+rogtui gpu topology                 # 固件模式 + 每块卡的显示输出（无需 sudo）
 sudo rogtui gpu set hybrid --yes    # 需要重启
 ```
 
 `integrated` / `hybrid` / `ultimate` 三档。
+
+`gpu_mux_mode` / `dgpu_disable` 写在 EC，属于硬件状态：同一台机器上的其他系统或 ASUS 工具改过之后，Linux 启动会直接继承；切换模式需要重启才生效。`gpu topology` 只读展示当前模式、eDP 由哪块 GPU 驱动、外接输出分别接在哪块卡上，以及同一块屏是否同时接在两块 GPU 上（EDID 相同）。
 
 ## 网络
 

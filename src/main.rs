@@ -26,7 +26,13 @@ fn main() {
     // 只读子命令不需要 root：doctor 只探测环境，nixos 只读 /etc 与导出。
     let readonly = matches!(
         &cli.command,
-        Some(cli::Cmd::Doctor | cli::Cmd::Nixos { .. })
+        Some(
+            cli::Cmd::Doctor
+                | cli::Cmd::Nixos { .. }
+                | cli::Cmd::Gpu {
+                    cmd: cli::GpuCmd::Topology
+                }
+        )
     );
     if !readonly && !util::is_root() {
         eprintln!("rogtui 需要 root 权限运行，请使用：sudo rogtui");
@@ -45,8 +51,14 @@ fn main() {
     let result = match cli.command {
         None => app::run(cfg, deps),
         Some(cmd) => {
-            if !matches!(cmd, cli::Cmd::Doctor | cli::Cmd::Nixos { .. })
-                && let Some(warning) = deps.startup_warning()
+            if !matches!(
+                cmd,
+                cli::Cmd::Doctor
+                    | cli::Cmd::Nixos { .. }
+                    | cli::Cmd::Gpu {
+                        cmd: cli::GpuCmd::Topology
+                    }
+            ) && let Some(warning) = deps.startup_warning()
             {
                 eprintln!("{warning}");
             }

@@ -482,6 +482,8 @@ pub struct App {
     hw_rx: Receiver<hw::HardwareInfo>,
     core_initialized: bool,
     pending_tab_refresh: bool,
+    /// 启动后只提示一次 GPU 模式（避免每次采样刷同一条消息）。
+    gpu_notice_shown: bool,
 }
 
 pub fn run(cfg: Config, report: deps::Report) -> Result<()> {
@@ -611,6 +613,7 @@ impl App {
             hw_rx,
             core_initialized: false,
             pending_tab_refresh: true,
+            gpu_notice_shown: false,
         };
         app.request_core();
         app.request_net_snapshot();
@@ -2851,6 +2854,13 @@ PL3 {max_pl3}W 高于 65W，注意温度"
         push_hist(&mut self.rx_hist, snap.rx_bps as u64);
         push_hist(&mut self.tx_hist, snap.tx_bps as u64);
         self.snap = snap;
+        if !self.gpu_notice_shown {
+            self.gpu_notice_shown = true;
+            if let Some(notice) = self.snap.topology.startup_notice() {
+                self.status = notice;
+                self.status_err = false;
+            }
+        }
         if self.snap_loading {
             self.snap_loading = false;
             if self.status == "正在读取系统信息…" {

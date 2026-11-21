@@ -28,6 +28,8 @@ pub struct Snapshot {
     pub swap_total: u64,
     pub fans: Vec<(String, u32)>,
     pub gpus: Vec<gpu::Status>,
+    /// 固件 GPU 模式与每块卡的显示输出（跨系统共享的 EC 状态）。
+    pub topology: gpu::Topology,
     pub gpu_load: Option<u8>,
     pub disk_used: u64,
     pub disk_total: u64,
@@ -212,6 +214,7 @@ impl Collector {
         snap.max_temp = temps.iter().map(|(_, v)| *v).reduce(f32::max);
         snap.temps = temps;
         snap.gpus = gpus;
+        snap.topology = gpu::topology(&snap.gpus);
 
         if let Ok(text) = fs::read_to_string("/proc/loadavg") {
             let mut fields = text.split_whitespace();

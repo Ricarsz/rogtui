@@ -56,6 +56,12 @@ nvidia_probe = "auto"   # auto / always / never
 
 AMD/Intel 走 DRM + hwmon，不受该选项影响。
 
+## GPU 模式与显示拓扑
+
+`gpu_mux_mode`（0 独显直连 / 1 混合）和 `dgpu_disable`（Eco）是 EC 固件状态，不是 Linux 配置：同一台机器上的其他系统或 ASUS 工具改过之后，Linux 下次启动会直接继承；切换后需要重启才生效。
+
+「显卡」页顶部显示当前固件模式、内置屏（eDP）由哪块 GPU 驱动、每个外接输出归属，以及同一块显示器是否同时接在两块 GPU 上（按 EDID 判断）。`rogtui gpu topology` 提供同样的只读信息，支持 `--json`。
+
 ## 持久化
 
 - 性能模式、电池上限、PPT/TGP 写入 `/etc/asusd/asusd.ron`，由 **asusd** 在开机和 AC/电池切换时自动恢复。

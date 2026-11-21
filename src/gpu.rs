@@ -10,6 +10,8 @@ use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use serde::Serialize;
+
 const SMI_TTL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -618,6 +620,204 @@ fn read_u64(path: impl AsRef<Path>) -> Option<u64> {
     read_trim(path)?.parse().ok()
 }
 
+// ── 跨系统 GPU 模式与显示拓扑 ──────────────────────────────────────────────
+//
+// gpu_mux_mode / dgpu_disable 写在 EC 里：同一台机器上的其他系统或工具改过之后，
+// Linux 启动时会直接继承。这里只读，不改写。
+
+const ARMOURY_DIR: &str = "/sys/class/firmware-attributes/asus-armoury/attributes";
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Topology {
+    /// 0 = 独显直连（eDP 接 dGPU），1 = 混合。
+    pub mux_mode: Option<u8>,
+    /// true = Eco，dGPU 被固件禁用。
+    pub dgpu_disabled: Option<bool>,
+    pub boot_vga: Option<String>,
+    pub edp: Option<OutputRef>,
+    pub cards: Vec<CardTopology>,
+    /// 同一块外接屏同时接在两块 GPU 上（EDID 相同）。
+    pub dual_cable: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct CardTopology {
+    pub card: String,
+    pub pci: String,
+    pub vendor: String,
+    pub name: String,
+    pub boot_vga: bool,
+    pub outputs: Vec<OutputRef>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct OutputRef {
+    pub connector: String,
+    pub internal: bool,
+    pub card: String,
+    pub vendor: String,
+    pub gpu: String,
+    /// EDID 的 FNV-1a 指纹，仅用于判断“双线同屏”，不输出。
+    #[serde(skip)]
+    pub edid: Option<u64>,
+}
+
+impl Topology {
+    pub fn mode_label(&self) -> &'static str {
+        match (self.dgpu_disabled, self.mux_mode) {
+            (Some(true), _) => "Eco（dGPU 禁用）",
+            (_, Some(0)) => "独显直连",
+            (_, Some(1)) => "混合",
+            _ => "未知",
+        }
+    }
+
+    /// 给界面用的一句话建议。措辞保持通用：不假设单系统/双系统，也不替用户决定该用哪种模式。
+    pub fn advice(&self) -> Option<&'static str> {
+        match (self.dgpu_disabled, self.mux_mode) {
+            (Some(true), _) => Some("独显已禁用；需要独显时切回混合或独显模式并重启"),
+            (_, Some(0)) => Some("独显直连：内置屏由独显驱动；如需核显，切换到混合模式后重启"),
+            (_, Some(1)) => Some("混合：内置屏由核显驱动，独显按需 offload"),
+            _ => None,
+        }
+    }
+
+    /// 启动时的一次性提示；不阻塞界面，只陈述固件状态。
+    pub fn startup_notice(&self) -> Option<String> {
+        if self.mux_mode != Some(0) {
+            return None;
+        }
+        let screen = self
+            .edp
+            .as_ref()
+            .map(|out| format!("{} 由 {} 驱动", out.connector, out.vendor))
+            .unwrap_or_else(|| "内置屏由独显驱动".into());
+        Some(format!(
+            "GPU：独显直连（{screen}）；模式写在 EC，切换需重启"
+        ))
+    }
+
+    pub fn outputs_line(&self) -> String {
+        self.cards
+            .iter()
+            .flat_map(|card| card.outputs.iter())
+            .map(|out| format!("{} → {}", out.connector, out.vendor))
+            .collect::<Vec<_>>()
+            .join(" · ")
+    }
+}
+
+/// 用当前采样到的显卡状态构建拓扑（采样线程每秒调用一次，只读 sysfs）。
+pub fn topology(gpus: &[Status]) -> Topology {
+    let refs: Vec<&Gpu> = gpus.iter().map(|status| &status.gpu).collect();
+    build(&refs)
+}
+
+/// 独立构建拓扑（CLI 用，不触发 nvidia-smi）。
+pub fn topology_now() -> Topology {
+    let gpus = discover();
+    let refs: Vec<&Gpu> = gpus.iter().collect();
+    build(&refs)
+}
+
+fn build(gpus: &[&Gpu]) -> Topology {
+    let mux_mode = read_u64(format!("{ARMOURY_DIR}/gpu_mux_mode/current_value"))
+        .and_then(|value| u8::try_from(value).ok());
+    let dgpu_disabled =
+        read_u64(format!("{ARMOURY_DIR}/dgpu_disable/current_value")).map(|value| value == 1);
+
+    let mut cards = Vec::new();
+    let mut all = Vec::new();
+    for gpu in gpus {
+        let mut outputs = Vec::new();
+        if let Ok(entries) = fs::read_dir("/sys/class/drm") {
+            let prefix = format!("{}-", gpu.card);
+            for entry in entries.flatten() {
+                let node = entry.file_name().to_string_lossy().to_string();
+                let Some(connector) = node.strip_prefix(&prefix) else {
+                    continue;
+                };
+                if connector.starts_with("Writeback") {
+                    continue;
+                }
+                if read_trim(entry.path().join("status")).as_deref() != Some("connected") {
+                    continue;
+                }
+                let internal = connector.starts_with("eDP")
+                    || connector.starts_with("LVDS")
+                    || connector.starts_with("DSI");
+                let edid = fs::read(entry.path().join("edid"))
+                    .ok()
+                    .filter(|bytes| !bytes.is_empty())
+                    .map(|bytes| fnv1a(&bytes));
+                let output = OutputRef {
+                    connector: connector.to_string(),
+                    internal,
+                    card: gpu.card.clone(),
+                    vendor: gpu.vendor.label().to_string(),
+                    gpu: gpu.name.clone(),
+                    edid,
+                };
+                outputs.push(output.clone());
+                all.push(output);
+            }
+        }
+        outputs.sort_by_key(|out| (!out.internal, out.connector.clone()));
+        let boot_vga =
+            read_trim(format!("/sys/bus/pci/devices/{}/boot_vga", gpu.pci)).as_deref() == Some("1");
+        cards.push(CardTopology {
+            card: gpu.card.clone(),
+            pci: gpu.pci.clone(),
+            vendor: gpu.vendor.label().to_string(),
+            name: gpu.name.clone(),
+            boot_vga,
+            outputs,
+        });
+    }
+
+    let edp = all.iter().find(|out| out.internal).cloned();
+    let boot_vga = cards
+        .iter()
+        .find(|card| card.boot_vga)
+        .map(|card| card.pci.clone());
+    let dual_cable = dual_cable(&all);
+    Topology {
+        mux_mode,
+        dgpu_disabled,
+        boot_vga,
+        edp,
+        cards,
+        dual_cable,
+    }
+}
+
+/// 同一块显示器同时接在两块不同 GPU 上：EDID 指纹相同。
+fn dual_cable(outputs: &[OutputRef]) -> bool {
+    let mut seen: HashMap<u64, &str> = HashMap::new();
+    for out in outputs.iter().filter(|out| !out.internal) {
+        let Some(edid) = out.edid else {
+            continue;
+        };
+        match seen.get(&edid) {
+            Some(card) if *card != out.card => return true,
+            Some(_) => {}
+            None => {
+                seen.insert(edid, &out.card);
+            }
+        }
+    }
+    false
+}
+
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -699,5 +899,55 @@ mod tests {
         fs::write(&path, "0: 800Mhz *\n1: 1100Mhz \n2: 2700Mhz \n").unwrap();
         assert_eq!(amd_clock(&path), Some(800));
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn labels_firmware_gpu_modes() {
+        let ultimate = Topology {
+            mux_mode: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(ultimate.mode_label(), "独显直连");
+        assert!(ultimate.startup_notice().is_some());
+
+        let hybrid = Topology {
+            mux_mode: Some(1),
+            dgpu_disabled: Some(false),
+            ..Default::default()
+        };
+        assert_eq!(hybrid.mode_label(), "混合");
+        assert!(hybrid.startup_notice().is_none());
+
+        let eco = Topology {
+            mux_mode: Some(1),
+            dgpu_disabled: Some(true),
+            ..Default::default()
+        };
+        assert_eq!(eco.mode_label(), "Eco（dGPU 禁用）");
+    }
+
+    #[test]
+    fn detects_dual_cable_by_edid() {
+        let output = |card: &str, connector: &str, edid: u64| OutputRef {
+            connector: connector.into(),
+            internal: false,
+            card: card.into(),
+            vendor: "GPU".into(),
+            gpu: "GPU".into(),
+            edid: Some(edid),
+        };
+        assert!(dual_cable(&[
+            output("card0", "DP-3", 42),
+            output("card1", "DP-1", 42)
+        ]));
+        assert!(!dual_cable(&[
+            output("card0", "DP-3", 42),
+            output("card1", "DP-1", 43)
+        ]));
+        // 同一块卡上的两个口同时接屏，不是双线同屏。
+        assert!(!dual_cable(&[
+            output("card1", "DP-1", 42),
+            output("card1", "DP-2", 42)
+        ]));
     }
 }
